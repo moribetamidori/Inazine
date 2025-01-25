@@ -26,6 +26,7 @@ export default function CreateScreen() {
   const [selectedPage, setSelectedPage] = useState(0);
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
   const [textInputValue, setTextInputValue] = useState<string>("");
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
 
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
@@ -63,23 +64,45 @@ export default function CreateScreen() {
   };
 
   const addElement = async (type: "text" | "image") => {
-    if (type === "image") {
+    if (type === "text") {
+      const newElement = {
+        id: `element-${Date.now()}`,
+        type,
+        content: "New text",
+        position: { x: 50, y: 100 },
+      };
+
+      setPages((currentPages) => {
+        const updatedPages = [...currentPages];
+        updatedPages[selectedPage].elements.push(newElement);
+        return updatedPages;
+      });
+      
+      // Automatically select the new text element
+      setSelectedElementId(newElement.id);
+    } else if (type === "image") {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         quality: 1,
+        exif: true,
+        allowsMultipleSelection: false,
       });
 
       if (!result.canceled) {
         const uri = result.assets[0].uri;
         Image.getSize(uri, (width, height) => {
+          const screenWidth = 300;
           const aspectRatio = width / height;
           const newElement = {
             id: `element-${Date.now()}`,
             type,
             content: uri,
             position: { x: 50, y: 100 },
-            dimensions: { width: 100 * aspectRatio, height: 100 },
+            dimensions: {
+              width: screenWidth,
+              height: screenWidth / aspectRatio,
+            },
           };
 
           setPages((currentPages) => {
@@ -89,25 +112,13 @@ export default function CreateScreen() {
           });
         });
       }
-    } else {
-      const newElement = {
-        id: `element-${Date.now()}`,
-        type,
-        content: "New Text",
-        position: { x: 50, y: 100 },
-      };
-
-      setPages((currentPages) => {
-        const updatedPages = [...currentPages];
-        updatedPages[selectedPage].elements.push(newElement);
-        return updatedPages;
-      });
     }
   };
 
   const handleTextPress = (elementId: string, currentContent: string) => {
     setEditingElementId(elementId);
     setTextInputValue(currentContent);
+    setSelectedElementId(elementId);
   };
 
   const handleTextChange = (newContent: string) => {
@@ -128,6 +139,7 @@ export default function CreateScreen() {
         return updatedPages;
       });
       setEditingElementId(null);
+      setSelectedElementId(editingElementId);
     }
   };
 
@@ -138,6 +150,10 @@ export default function CreateScreen() {
       page.elements = page.elements.filter(el => el.id !== elementId);
       return updatedPages;
     });
+  };
+
+  const handleImagePress = (elementId: string) => {
+    setSelectedElementId(selectedElementId === elementId ? null : elementId);
   };
 
   return (
@@ -202,44 +218,92 @@ export default function CreateScreen() {
               renderSize={60}
             >
               {element.type === "text" ? (
-                editingElementId === element.id ? (
-                  <TextInput
-                    value={textInputValue}
-                    onChangeText={handleTextChange}
-                    onSubmitEditing={handleTextSubmit}
-                    style={{ borderWidth: 1, padding: 5, width: 100 }}
-                    autoFocus
-                  />
-                ) : (
-                  <Text onPress={() => handleTextPress(element.id, element.content)}>
-                    {element.content}
-                  </Text>
-                )
+                <Animated.View>
+                  {editingElementId === element.id ? (
+                    <>
+                      <TextInput
+                        value={textInputValue}
+                        onChangeText={handleTextChange}
+                        onSubmitEditing={handleTextSubmit}
+                        onBlur={handleTextSubmit}
+                        style={{ 
+                          borderWidth: 1, 
+                          padding: 5, 
+                          minWidth: 100,
+                          fontSize: 16,
+                        }}
+                        autoFocus
+                      />
+                      <TouchableOpacity
+                        onPress={() => deleteElement(element.id)}
+                        style={{
+                          position: 'absolute',
+                          top: -20,
+                          right: -20,
+                          backgroundColor: 'red',
+                          padding: 8,
+                          borderRadius: 15,
+                          width: 30,
+                          height: 30,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <MaterialIcons name="close" size={14} color="white" />
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <TouchableOpacity 
+                      onPress={() => handleTextPress(element.id, element.content)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{ 
+                        fontSize: 16,
+                        padding: 5,
+                      }}>
+                        {element.content}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </Animated.View>
               ) : (
                 <PinchGestureHandler
                   onGestureEvent={onPinchEvent}
-                  enabled={true}
+                  enabled={selectedElementId === element.id}
                 >
                   <Animated.View style={[{ width: element.dimensions?.width, height: element.dimensions?.height }, animatedStyle]}>
-                    <Image
-                      source={{ uri: element.content }}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                      }}
-                    />
-                    <TouchableOpacity
-                      onPress={() => deleteElement(element.id)}
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        right: 0,
-                        backgroundColor: 'red',
-                        padding: 5,
-                      }}
+                    <TouchableOpacity 
+                      onPress={() => handleImagePress(element.id)}
+                      activeOpacity={1}
                     >
-                      <Text style={{ color: 'white' }}>Delete</Text>
+                      <Image
+                        source={{ uri: element.content }}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          resizeMode: 'contain',
+                        }}
+                      />
                     </TouchableOpacity>
+                    {selectedElementId === element.id && (
+                      <TouchableOpacity
+                        onPress={() => deleteElement(element.id)}
+                        style={{
+                          position: 'absolute',
+                          top: -20,
+                          right: -20,
+                          backgroundColor: 'red',
+                          padding: 8,
+                          borderRadius: 15,
+                          width: 30,
+                          height: 30,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <MaterialIcons name="close" size={14} color="white" />
+                      </TouchableOpacity>
+                    )}
                   </Animated.View>
                 </PinchGestureHandler>
               )}
