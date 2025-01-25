@@ -16,6 +16,7 @@ interface PageContent {
     content: string;
     position: { x: number; y: number };
     dimensions?: { width: number; height: number };
+    scale?: number;
   }[];
 }
 
@@ -27,31 +28,6 @@ export default function CreateScreen() {
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
   const [textInputValue, setTextInputValue] = useState<string>("");
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
-
-  const scale = useSharedValue(1);
-  const savedScale = useSharedValue(1);
-  
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: scale.value * savedScale.value }],
-    };
-  });
-
-  const onPinchEvent = useAnimatedGestureHandler<PinchGestureHandlerGestureEvent>({
-    onStart: () => {
-      'worklet';
-      scale.value = 1;
-    },
-    onActive: (event) => {
-      'worklet';
-      scale.value = event.scale;
-    },
-    onEnd: () => {
-      'worklet';
-      savedScale.value = savedScale.value * scale.value;
-      scale.value = 1;
-    },
-  });
 
   const addNewPage = () => {
     setPages([
@@ -103,6 +79,7 @@ export default function CreateScreen() {
               width: screenWidth,
               height: screenWidth / aspectRatio,
             },
+            scale: 1,
           };
 
           setPages((currentPages) => {
@@ -154,6 +131,28 @@ export default function CreateScreen() {
 
   const handleImagePress = (elementId: string) => {
     setSelectedElementId(selectedElementId === elementId ? null : elementId);
+  };
+
+  const updateElementScale = (elementId: string, gestureScale: number) => {
+    setPages((currentPages) => {
+      const updatedPages = [...currentPages];
+      const page = updatedPages[selectedPage];
+      const elementIndex = page.elements.findIndex(el => el.id === elementId);
+      
+      if (elementIndex !== -1) {
+        const currentScale = page.elements[elementIndex].scale || 1;
+        // Different sensitivity for enlarging vs shrinking
+        const scaleFactor = gestureScale > 1 
+          ? 1 + (gestureScale - 1) * 0.01  // More subtle for enlarging (0.01)
+          : 1 + (gestureScale - 1) * 0.03; // Keep current sensitivity for shrinking (0.03)
+        const newScale = currentScale * scaleFactor;
+        
+        // Clamp the scale between 0.5 and 3
+        const clampedScale = Math.min(Math.max(newScale, 0.5), 3);
+        page.elements[elementIndex].scale = clampedScale;
+      }
+      return updatedPages;
+    });
   };
 
   return (
@@ -268,10 +267,14 @@ export default function CreateScreen() {
                 </Animated.View>
               ) : (
                 <PinchGestureHandler
-                  onGestureEvent={onPinchEvent}
+                  onGestureEvent={(event) => {
+                    if (selectedElementId === element.id) {
+                      updateElementScale(element.id, event.nativeEvent.scale);
+                    }
+                  }}
                   enabled={selectedElementId === element.id}
                 >
-                  <Animated.View style={[{ width: element.dimensions?.width, height: element.dimensions?.height }, animatedStyle]}>
+                  <Animated.View style={{ position: 'relative' }}>
                     <TouchableOpacity 
                       onPress={() => handleImagePress(element.id)}
                       activeOpacity={1}
@@ -279,8 +282,9 @@ export default function CreateScreen() {
                       <Image
                         source={{ uri: element.content }}
                         style={{
-                          width: '100%',
-                          height: '100%',
+                          width: element.dimensions?.width || 0,
+                          height: element.dimensions?.height || 0,
+                          transform: [{ scale: element.scale || 1 }],
                           resizeMode: 'contain',
                         }}
                       />
@@ -290,8 +294,12 @@ export default function CreateScreen() {
                         onPress={() => deleteElement(element.id)}
                         style={{
                           position: 'absolute',
-                          top: -20,
-                          right: -20,
+                          top: 0,
+                          right: 0,
+                          transform: [
+                            { translateX: (element.dimensions?.width || 0) * ((element.scale || 1) - 1) / 2 + 20 },
+                            { translateY: -(element.dimensions?.height || 0) * ((element.scale || 1) - 1) / 2 - 20 }
+                          ],
                           backgroundColor: 'red',
                           padding: 8,
                           borderRadius: 15,
@@ -299,6 +307,7 @@ export default function CreateScreen() {
                           height: 30,
                           justifyContent: 'center',
                           alignItems: 'center',
+                          zIndex: 1000,
                         }}
                       >
                         <MaterialIcons name="close" size={14} color="white" />
